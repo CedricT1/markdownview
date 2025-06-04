@@ -42,13 +42,13 @@ def export_odt(markdown_text):
     try:
         process = subprocess.run(
             ['pandoc', '--from=markdown', '--to=odt', '--output=-'],
-            input=markdown_text,
-            text=True,
+            input=markdown_text.encode('utf-8'), # Pandoc attend des bytes sur stdin pour l'input
+            text=False, # Traiter stdout comme binaire
             capture_output=True,
             check=True
         )
-        odt_content = process.stdout.encode('utf-8') # Pandoc sort du texte, on encode pour le binaire
-        return BytesIO(odt_content)
+        # process.stdout est maintenant directement des bytes
+        return BytesIO(process.stdout)
     except FileNotFoundError:
         # Gérer le cas où pandoc n'est pas installé ou non trouvé dans le PATH
         # Pour l'environnement Docker, cela ne devrait pas arriver si bien configuré.
