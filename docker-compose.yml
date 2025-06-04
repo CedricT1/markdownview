@@ -8,14 +8,8 @@ services:
     container_name: markdownview_app_container
     ports:
       - "5050:5000" # Port hôte changé à 5050, port conteneur reste 5000
-    volumes:
-      # Si vous voulez du hot-reloading pendant le développement,
-      # vous pouvez monter le répertoire de l'application.
-      # Attention: les dépendances système installées via apt dans le Dockerfile
-      # ne seront pas affectées par ce montage.
-      # Pour la production, il est généralement préférable de ne pas monter le code source
-      # et de s'appuyer sur l'image construite.
-      # - ./app:/opt/app/app
+    # volumes: # Commenter la clé elle-même si aucun volume n'est actif
+      # - ./app:/opt/app/app # Exemple de volume, correctement formaté en tant qu'élément de liste
     restart: unless-stopped
     environment:
       # Vous pouvez ajouter des variables d'environnement ici si nécessaire
