@@ -95,7 +95,7 @@ markdownview/
 
 ## Auteurs
 
-*   Votre Nom / Pseudo
+*   Cédric Trachsel / CedricT1
 
 ## Licence
 
