@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: markdownview_app_container
     ports:
-      - "5000:5000"
+      - "5050:5000" # Port hôte changé à 5050, port conteneur reste 5000
     volumes:
       # Si vous voulez du hot-reloading pendant le développement,
       # vous pouvez monter le répertoire de l'application.
