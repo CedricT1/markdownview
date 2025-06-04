@@ -64,7 +64,7 @@ markdownview/
     docker run -p 5000:5000 markdownview-app
     ```
 
-    L'application sera accessible à l'adresse `http://localhost:5000`.
+    L'application sera accessible à l'adresse `http://localhost:5050`.
 
 ### Avec Docker Compose (Recommandé)
 
@@ -87,7 +87,7 @@ markdownview/
 
 ## Utilisation
 
-1.  Ouvrez votre navigateur et allez sur `http://localhost:5000`.
+1.  Ouvrez votre navigateur et allez sur `http://localhost:5050` (si vous utilisez `docker-compose up`) ou `http://localhost:5000` (si vous utilisez `docker run -p 5000:5000 ...`).
 2.  Collez ou écrivez votre texte Markdown dans la zone de gauche.
 3.  L'aperçu se mettra à jour automatiquement dans la zone de droite.
 4.  Utilisez le bouton "Changer de Thème" pour basculer entre les thèmes clair et sombre.
