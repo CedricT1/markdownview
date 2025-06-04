@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown Viewer & Exporter</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Les thèmes seront chargés dynamiquement ou via une classe sur body -->
+</head>
+<body> <!-- La classe 'theme-dark' ou 'theme-light' sera ajoutée ici -->
+
+    <header>
+        <h1>Markdown Viewer & Exporter</h1>
+        <button id="theme-toggle">Changer de Thème</button>
+    </header>
+
+    <main class="container">
+        <section class="editor-section">
+            <h2>Votre Markdown</h2>
+            <textarea id="markdown-input" rows="20" placeholder="Collez votre Markdown ici..."></textarea>
+        </section>
+
+        <section class="preview-section">
+            <h2>Aperçu</h2>
+            <div id="markdown-preview" class="markdown-body">
+                <!-- L'aperçu HTML sera injecté ici -->
+            </div>
+        </section>
+    </main>
+
+    <footer class="container">
+        <h2>Exporter</h2>
+        <form id="export-form" method="POST">
+            <input type="hidden" name="markdown" id="export-markdown-content">
+            <button type="submit" formaction="{{ url_for('export_file', format_type='html') }}">Exporter en HTML</button>
+            <button type="submit" formaction="{{ url_for('export_file', format_type='pdf') }}">Exporter en PDF</button>
+            <button type="submit" formaction="{{ url_for('export_file', format_type='odt') }}">Exporter en ODT</button>
+        </form>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
