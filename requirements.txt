@@ -1,4 +1,5 @@
 Flask
 gunicorn
 markdown-it-py
+mdit-py-plugins
 WeasyPrint
