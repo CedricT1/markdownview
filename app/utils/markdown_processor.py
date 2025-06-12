@@ -4,7 +4,8 @@ def to_html(markdown_text):
     """
     Convertit du texte Markdown en HTML.
     """
-    md = MarkdownIt()
+    md = MarkdownIt('commonmark', {'breaks': True, 'linkify': True})
+    md.enable(['table'])
     html = md.render(markdown_text)
     return html
 
