@@ -15,7 +15,7 @@ RUN apt-get update && \
     build-essential \
     libpango-1.0-0 \
     libcairo2 \
-    libgdk-pixbuf2.0-0 \
+    libgdk-pixbuf-2.0-0 \
     # Pandoc n'est pas strictement nécessaire ici si on l'installe dans l'image finale,
     # mais le garder ici peut être utile si des scripts de build l'utilisaient.
     # Pour simplifier, on peut l'omettre ici et ne l'installer que dans l'image finale.
@@ -38,7 +38,7 @@ RUN apt-get update && \
     libpango-1.0-0 \
     libpangoft2-1.0-0 \
     libcairo2 \
-    libgdk-pixbuf2.0-0 \
+    libgdk-pixbuf-2.0-0 \
     pandoc \
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
