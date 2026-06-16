@@ -1,96 +1,68 @@
 from markdown_it import MarkdownIt
+from markdown_it.common.utils import escapeHtml
 import mdit_py_plugins.footnote
-import mdit_py_plugins.deflist  
+import mdit_py_plugins.deflist
 import mdit_py_plugins.front_matter
 
-def to_html(markdown_text):
+
+def _build_md():
     """
-    Convertit du texte Markdown en HTML avec des extensions avancées.
-    
+    Construit l'instance MarkdownIt (réutilisée pour toutes les requêtes).
+
     Extensions activées:
     - table: Tableaux GitHub Flavored Markdown
     - strikethrough: Texte barré ~~texte~~
-    - linkify: Détection automatique des liens
+    - linkify: Détection automatique des liens (nécessite linkify-it-py)
     - breaks: Sauts de ligne automatiques
     - footnote: Notes de bas de page [^1]
     - deflist: Listes de définitions
     - front_matter: Métadonnées YAML en en-tête
+
+    Sécurité: le preset 'default' garde html=False, donc le HTML brut présent
+    dans le Markdown est échappé au lieu d'être injecté tel quel (anti-XSS).
     """
-    md = (MarkdownIt('commonmark', {'breaks': True, 'linkify': True})
+    md = (MarkdownIt('default', {'breaks': True, 'linkify': True, 'html': False})
           .enable(['table', 'strikethrough'])
           .use(mdit_py_plugins.footnote.footnote_plugin)
           .use(mdit_py_plugins.deflist.deflist_plugin)
           .use(mdit_py_plugins.front_matter.front_matter_plugin))
-    
-    html = md.render(markdown_text)
-    
-    # Support Mermaid : ajouter le JavaScript si nécessaire
-    if '```mermaid' in markdown_text:
-        mermaid_script = """
-<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-<script>
-    mermaid.initialize({
-        startOnLoad: true,
-        theme: 'default',
-        securityLevel: 'loose'
-    });
-</script>
-"""
-        html = html + mermaid_script
-    
-    return html
+
+    # Rendre les blocs ```mermaid en <div class="mermaid"> pour que mermaid.js
+    # puisse les détecter. Le contenu est échappé : le navigateur le ré-interprète
+    # via textContent, donc le diagramme reste correct sans risque d'injection.
+    default_fence = md.renderer.rules.get('fence', md.renderer.fence)
+
+    def render_fence(tokens, idx, options, env):
+        token = tokens[idx]
+        if token.info.strip().lower() == 'mermaid':
+            return f'<div class="mermaid">{escapeHtml(token.content)}</div>\n'
+        return default_fence(tokens, idx, options, env)
+
+    md.renderer.rules['fence'] = render_fence
+    return md
+
+
+_MD = _build_md()
+
+
+def to_html(markdown_text):
+    """Convertit du texte Markdown en fragment HTML (sans <html>/<body>)."""
+    return _MD.render(markdown_text)
+
 
 # Exemple d'utilisation si vous voulez tester ce module directement
 if __name__ == '__main__':
-    sample_markdown = """---
-title: Test Document
-author: Système
----
+    sample_markdown = """# Test
 
-# Extensions Markdown avancées
+| A | B |
+|---|---|
+| 1 | 2 |
 
-## Tableaux
-| Fonctionnalité | Status | Description |
-|----------------|--------|-------------|
-| Tables | ✅ Actif | Tableaux GitHub |
-| Notes | ✅ Actif | Notes de bas de page |
-| Strikethrough | ✅ Actif | Texte ~~barré~~ |
-| Mermaid | ✅ Actif | Diagrammes |
+Texte ~~barré~~ et lien https://example.com
 
-## Texte formaté
-Voici du texte ~~barré~~, du **gras** et de l'*italique*.
-
-## Notes de bas de page
-Ceci contient une note[^1] importante avec plus de détails[^2].
-
-[^1]: Voici la première note de bas de page.
-[^2]: Et voici une seconde note avec plus d'informations.
-
-## Listes de définitions
-Markdown
-: Un langage de balisage léger pour formater du texte
-
-HTML
-: HyperText Markup Language
-: Le langage standard du web
-
-CSS
-: Cascading Style Sheets
-: Pour styliser les pages web
-
-## Détection automatique de liens
-Visitez https://www.example.com ou mailto:test@example.com automatiquement.
-
-## Diagramme Mermaid
 ```mermaid
 graph TD
-    A[Markdown] --> B[Processeur]
-    B --> C[HTML]
-    C --> D[Rendu]
-    D --> E[Affichage]
+    A[Markdown] --> B[HTML]
 ```
 """
-    
-    print("=== HTML généré avec toutes les extensions ===")
-    html_output = to_html(sample_markdown)
-    print(html_output)
+    print(to_html(sample_markdown))

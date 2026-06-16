@@ -1,88 +1,118 @@
+import ipaddress
+import os
+import socket
 import subprocess
 from io import BytesIO
-from weasyprint import HTML as WeasyHTML
+from urllib.parse import urlparse
+
+from weasyprint import HTML as WeasyHTML, default_url_fetcher
+
 from .markdown_processor import to_html as markdown_to_html
 
-def export_html(markdown_text):
-    """
-    Exporte le Markdown en tant que chaîne HTML complète.
-    """
-    return markdown_to_html(markdown_text)
+# CSS du projet, inliné dans les exports pour un rendu cohérent et portable.
+_CSS_PATH = os.path.join(os.path.dirname(__file__), '..', 'static', 'css', 'style.css')
 
-def export_pdf(markdown_text):
-    """
-    Convertit le texte Markdown en un flux binaire PDF.
-    Pour l'instant, sans CSS spécifique, le rendu sera basique.
-    """
-    html_content = markdown_to_html(markdown_text)
-    
-    # WeasyPrint a besoin d'une page HTML complète, même simple
-    full_html = f"""
-<!DOCTYPE html>
-<html>
+# Mermaid n'est rendu que côté navigateur (JS) : utile pour l'export HTML,
+# inutile pour le PDF (WeasyPrint n'exécute pas de JavaScript).
+_MERMAID_SCRIPT = (
+    '<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>'
+    '<script>mermaid.initialize({startOnLoad: true, securityLevel: "strict"});</script>'
+)
+
+
+class ExportError(Exception):
+    """Erreur métier d'export, à traduire en réponse HTTP par la route."""
+
+
+def _load_css():
+    try:
+        with open(_CSS_PATH, encoding='utf-8') as f:
+            return f.read()
+    except OSError:
+        return ''
+
+
+_EXPORT_CSS = _load_css()
+
+
+def _standalone_html(html_fragment, title, include_mermaid):
+    mermaid = _MERMAID_SCRIPT if include_mermaid and 'class="mermaid"' in html_fragment else ''
+    return f"""<!DOCTYPE html>
+<html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Export PDF</title>
-    <!-- Ici, on pourrait lier des CSS pour le PDF -->
+    <title>{title}</title>
+    <style>{_EXPORT_CSS}</style>
 </head>
 <body>
-    {html_content}
+    <div class="markdown-body">
+{html_fragment}
+    </div>
+    {mermaid}
 </body>
-</html>
-"""
+</html>"""
+
+
+def _safe_url_fetcher(url, *args, **kwargs):
+    """
+    url_fetcher WeasyPrint anti-SSRF : refuse file:// et les hôtes résolvant
+    vers une IP privée/loopback/réservée (empêche un Markdown malveillant de
+    faire requêter le réseau interne par le serveur lors d'un export PDF).
+    """
+    parsed = urlparse(url)
+    scheme = parsed.scheme.lower()
+    if scheme == 'data':
+        return default_url_fetcher(url, *args, **kwargs)
+    if scheme not in ('http', 'https'):
+        raise ValueError(f"Schéma d'URL interdit pour l'export : {scheme or '(vide)'}")
+    host = parsed.hostname
+    if not host:
+        raise ValueError("URL sans hôte interdite pour l'export")
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as exc:
+        raise ValueError(f"Hôte introuvable : {host}") from exc
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            raise ValueError("Accès à une adresse réseau interne interdit")
+    return default_url_fetcher(url, *args, **kwargs)
+
+
+def export_html(markdown_text):
+    """Exporte le Markdown en document HTML autonome (CSS inliné + Mermaid)."""
+    fragment = markdown_to_html(markdown_text)
+    return _standalone_html(fragment, "Export HTML", include_mermaid=True)
+
+
+def export_pdf(markdown_text):
+    """Convertit le Markdown en flux binaire PDF (stylé, sans accès réseau interne)."""
+    fragment = markdown_to_html(markdown_text)
+    full_html = _standalone_html(fragment, "Export PDF", include_mermaid=False)
     pdf_file = BytesIO()
-    WeasyHTML(string=full_html).write_pdf(pdf_file)
+    WeasyHTML(string=full_html, url_fetcher=_safe_url_fetcher).write_pdf(pdf_file)
     pdf_file.seek(0)
     return pdf_file
 
+
 def export_odt(markdown_text):
     """
-    Convertit le texte Markdown en un flux binaire ODT en utilisant Pandoc.
+    Convertit le Markdown en flux binaire ODT via Pandoc.
+
+    Lève ExportError en cas d'échec (Pandoc absent ou erreur de conversion),
+    afin que la route renvoie un vrai code HTTP au lieu d'un .odt corrompu.
     """
     try:
         process = subprocess.run(
             ['pandoc', '--from=markdown', '--to=odt', '--output=-'],
-            input=markdown_text.encode('utf-8'), # Pandoc attend des bytes sur stdin pour l'input
-            text=False, # Traiter stdout comme binaire
+            input=markdown_text.encode('utf-8'),
+            text=False,
             capture_output=True,
-            check=True
+            check=True,
         )
-        # process.stdout est maintenant directement des bytes
         return BytesIO(process.stdout)
-    except FileNotFoundError:
-        # Gérer le cas où pandoc n'est pas installé ou non trouvé dans le PATH
-        # Pour l'environnement Docker, cela ne devrait pas arriver si bien configuré.
-        error_message = "Erreur: Pandoc n'a pas été trouvé. Veuillez vérifier l'installation."
-        print(error_message) # Log pour le serveur
-        return BytesIO(error_message.encode('utf-8')) # Renvoyer un message d'erreur dans le fichier
-    except subprocess.CalledProcessError as e:
-        # Gérer les erreurs de Pandoc
-        error_message = f"Erreur lors de la conversion avec Pandoc: {e.stderr}"
-        print(error_message) # Log pour le serveur
-        return BytesIO(error_message.encode('utf-8')) # Renvoyer un message d'erreur dans le fichier
-
-# Exemple d'utilisation
-if __name__ == '__main__':
-    sample_md = "# Test ODT\nCeci est un test."
-    
-    # Test HTML
-    # html_data = export_html(sample_md)
-    # print("HTML Output:\n", html_data)
-
-    # Test PDF (nécessite les dépendances WeasyPrint)
-    # try:
-    #     pdf_data_stream = export_pdf(sample_md)
-    #     with open("test_export.pdf", "wb") as f:
-    #         f.write(pdf_data_stream.read())
-    #     print("PDF 'test_export.pdf' généré.")
-    # except Exception as e:
-    #     print(f"Erreur lors de la génération PDF: {e}")
-
-    # Test ODT (nécessite Pandoc)
-    try:
-        odt_data_stream = export_odt(sample_md)
-        with open("test_export.odt", "wb") as f:
-            f.write(odt_data_stream.read())
-        print("ODT 'test_export.odt' généré.")
-    except Exception as e:
-        print(f"Erreur lors de la génération ODT: {e}")
+    except FileNotFoundError as exc:
+        raise ExportError("Pandoc n'est pas installé sur le serveur.") from exc
+    except subprocess.CalledProcessError as exc:
+        details = exc.stderr.decode('utf-8', 'replace') if exc.stderr else ''
+        raise ExportError(f"Échec de la conversion Pandoc : {details}") from exc

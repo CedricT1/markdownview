@@ -5,11 +5,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const exportForm = document.getElementById('export-form');
     const exportMarkdownContentField = document.getElementById('export-markdown-content');
 
+    // Lance le rendu des diagrammes Mermaid présents dans l'aperçu.
+    // Les <script> injectés via innerHTML ne s'exécutent pas : on appelle
+    // donc mermaid.run() manuellement sur les nœuds .mermaid après chaque rendu.
+    function renderMermaid() {
+        if (!window.mermaid) return;
+        const nodes = markdownPreview.querySelectorAll('.mermaid');
+        if (nodes.length === 0) return;
+        try {
+            window.mermaid.run({ nodes });
+        } catch (e) {
+            console.error('Erreur Mermaid:', e);
+        }
+    }
+
     // Fonction pour mettre à jour l'aperçu
     async function updatePreview() {
         const markdownText = markdownInput.value;
         try {
-            const response = await fetch('/render', {
+            // URL relative : fonctionne aussi si l'app est servie dans un sous-dossier.
+            const response = await fetch('render', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
@@ -19,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.ok) {
                 const htmlContent = await response.text();
                 markdownPreview.innerHTML = htmlContent;
+                renderMermaid();
             } else {
                 markdownPreview.innerHTML = '<p class="error">Erreur lors du rendu du Markdown.</p>';
                 console.error('Erreur de rendu:', response.statusText);
