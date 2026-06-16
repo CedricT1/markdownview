@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const themeToggleButton = document.getElementById('theme-toggle');
     const exportForm = document.getElementById('export-form');
     const exportMarkdownContentField = document.getElementById('export-markdown-content');
+    const editorStats = document.getElementById('editor-stats');
 
     // Lance le rendu des diagrammes Mermaid présents dans l'aperçu.
     // Les <script> injectés via innerHTML ne s'exécutent pas : on appelle
@@ -19,7 +20,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Fonction pour mettre à jour l'aperçu
+    // Compteur de mots / caractères
+    function updateStats() {
+        if (!editorStats) return;
+        const text = markdownInput.value;
+        const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+        const chars = text.length;
+        const pl = (n) => (n > 1 ? 's' : '');
+        editorStats.textContent = `${words} mot${pl(words)} · ${chars} caractère${pl(chars)}`;
+    }
+
+    // Met à jour l'aperçu (rendu serveur)
     async function updatePreview() {
         const markdownText = markdownInput.value;
         try {
@@ -45,37 +56,44 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Mettre à jour l'aperçu lors de la saisie
+    // Anti-rebond : on évite de requêter /render à chaque frappe.
+    let renderTimer = null;
+    function scheduleRender() {
+        clearTimeout(renderTimer);
+        renderTimer = setTimeout(updatePreview, 180);
+    }
+
     if (markdownInput) {
-        markdownInput.addEventListener('input', updatePreview);
-        // Premier rendu au chargement si du texte est déjà présent (ex: après rechargement)
-        if(markdownInput.value) {
+        markdownInput.addEventListener('input', () => {
+            updateStats();
+            scheduleRender();
+        });
+        // Rendu initial (le textarea contient un document de bienvenue)
+        updateStats();
+        if (markdownInput.value) {
             updatePreview();
         }
     }
 
-    // Gestion du changement de thème
+    // Gestion du thème
     if (themeToggleButton) {
         themeToggleButton.addEventListener('click', () => {
-            document.body.classList.toggle('theme-dark');
-            // Sauvegarder la préférence de thème (optionnel)
-            if (document.body.classList.contains('theme-dark')) {
-                localStorage.setItem('theme', 'dark');
-            } else {
-                localStorage.setItem('theme', 'light');
-            }
+            const isDark = document.body.classList.toggle('theme-dark');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
         });
 
-        // Appliquer le thème sauvegardé au chargement
+        // Thème sauvegardé, sinon préférence système
         const savedTheme = localStorage.getItem('theme');
-        if (savedTheme === 'dark') {
+        const prefersDark = window.matchMedia
+            && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
             document.body.classList.add('theme-dark');
         } else {
-            document.body.classList.remove('theme-dark'); // Assure le thème clair par défaut
+            document.body.classList.remove('theme-dark');
         }
     }
 
-    // Mettre à jour le contenu Markdown dans le formulaire d'export avant soumission
+    // Injecte le Markdown courant dans le formulaire d'export avant soumission
     if (exportForm && markdownInput && exportMarkdownContentField) {
         exportForm.addEventListener('submit', () => {
             exportMarkdownContentField.value = markdownInput.value;

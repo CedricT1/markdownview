@@ -3,42 +3,111 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Markdown Viewer & Exporter</title>
-    <!-- Chemins relatifs pour fonctionner même si l'app est servie dans un sous-dossier -->
+    <title>Markdownview — éditeur & aperçu</title>
+    <!-- Chemins relatifs : fonctionne aussi si l'app est servie dans un sous-dossier -->
     <link rel="icon" type="image/svg+xml" href="static/markdown-viewer-icon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="static/css/style.css">
-    <!-- Les thèmes seront chargés dynamiquement ou via une classe sur body -->
 </head>
-<body> <!-- La classe 'theme-dark' ou 'theme-light' sera ajoutée ici -->
+<body>
+    <script>
+        // Applique le thème avant le premier rendu (évite le flash clair/sombre).
+        (function () {
+            var saved = localStorage.getItem('theme');
+            var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            if (saved === 'dark' || (!saved && prefersDark)) {
+                document.body.classList.add('theme-dark');
+            }
+        })();
+    </script>
+    <div class="grain" aria-hidden="true"></div>
 
-    <header>
-        <h1>Markdown Viewer & Exporter</h1>
-        <button id="theme-toggle">Changer de Thème</button>
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand-badge" aria-hidden="true">M<span class="brand-arrow">&#8595;</span></span>
+            <span class="brand-name">Markdown<em>view</em></span>
+        </div>
+
+        <div class="toolbar">
+            <form id="export-form" method="POST" class="exports">
+                <input type="hidden" name="markdown" id="export-markdown-content">
+                <span class="exports-label">Exporter</span>
+                <button type="submit" formaction="export/html">HTML</button>
+                <button type="submit" formaction="export/pdf">PDF</button>
+                <button type="submit" formaction="export/odt">ODT</button>
+            </form>
+
+            <button id="theme-toggle" class="icon-btn" type="button" aria-label="Changer de thème" title="Changer de thème">
+                <svg class="icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="4.2"></circle>
+                    <path d="M12 2.5v2.4M12 19.1v2.4M4.6 4.6l1.7 1.7M17.7 17.7l1.7 1.7M2.5 12h2.4M19.1 12h2.4M4.6 19.4l1.7-1.7M17.7 6.3l1.7-1.7"></path>
+                </svg>
+                <svg class="icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M20 14.5A8 8 0 0 1 9.5 4a6.5 6.5 0 1 0 10.5 10.5z"></path>
+                </svg>
+            </button>
+        </div>
     </header>
 
-    <main class="container">
-        <section class="editor-section">
-            <h2>Votre Markdown</h2>
-            <textarea id="markdown-input" rows="20" placeholder="Collez votre Markdown ici..."></textarea>
+    <main class="workspace">
+        <section class="pane pane--editor">
+            <div class="pane-head">
+                <span class="pane-label"><span class="dot dot--edit"></span>Éditeur</span>
+            </div>
+            <div class="pane-body">
+                <textarea id="markdown-input" spellcheck="false" placeholder="Écrivez votre Markdown ici…"># Bienvenue dans Markdownview
+
+**Markdownview** transforme votre Markdown en un aperçu net, en direct.
+
+## Pour commencer
+- Écrivez à gauche, lisez à droite.
+- Basculez le thème clair / sombre en haut à droite.
+- Exportez en **HTML**, **PDF** ou **ODT**.
+
+> « La simplicité est la sophistication suprême. »
+
+| Format | Idéal pour      |
+|--------|-----------------|
+| HTML   | le web          |
+| PDF    | l'impression    |
+| ODT    | la bureautique  |
+
+Un peu de code :
+
+```python
+def bonjour(nom):
+    return f"Bonjour {nom} !"
+```
+
+Et même un diagramme :
+
+```mermaid
+graph LR
+    A[Markdown] --> B[Aperçu] --> C[Export]
+```
+</textarea>
+            </div>
+            <div class="pane-foot">
+                <span id="editor-stats" class="stats">0 mot · 0 caractère</span>
+            </div>
         </section>
 
-        <section class="preview-section">
-            <h2>Aperçu</h2>
-            <div id="markdown-preview" class="markdown-body">
-                <!-- L'aperçu HTML sera injecté ici -->
+        <section class="pane pane--preview">
+            <div class="pane-head">
+                <span class="pane-label"><span class="dot dot--live"></span>Aperçu</span>
+            </div>
+            <div class="pane-body">
+                <article id="markdown-preview" class="markdown-body">
+                    <!-- L'aperçu HTML est injecté ici -->
+                </article>
+            </div>
+            <div class="pane-foot">
+                <span class="stats stats--muted">Rendu synchronisé en direct</span>
             </div>
         </section>
     </main>
-
-    <footer class="container">
-        <h2>Exporter</h2>
-        <form id="export-form" method="POST">
-            <input type="hidden" name="markdown" id="export-markdown-content">
-            <button type="submit" formaction="export/html">Exporter en HTML</button>
-            <button type="submit" formaction="export/pdf">Exporter en PDF</button>
-            <button type="submit" formaction="export/odt">Exporter en ODT</button>
-        </form>
-    </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
     <script>mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });</script>
