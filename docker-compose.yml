@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   markdownview:
     build:
@@ -7,14 +5,31 @@ services:
       dockerfile: Dockerfile
     container_name: markdownview_app_container
     ports:
-      - "5050:5000" # Port hôte changé à 5050, port conteneur reste 5000
-    # volumes: # Commenter la clé elle-même si aucun volume n'est actif
-      # - ./app:/opt/app/app # Exemple de volume, correctement formaté en tant qu'élément de liste
+      - "5050:5000" # Port hôte 5050 -> port conteneur 5000
     restart: unless-stopped
+    depends_on:
+      - kroki
     environment:
-      # Vous pouvez ajouter des variables d'environnement ici si nécessaire
-      # Par exemple, pour Flask en mode debug (non recommandé en production pure)
-      # FLASK_DEBUG: 1
-      # Pour Gunicorn:
-      # GUNICORN_CMD_ARGS: "--workers=4 --threads=2"
-      PYTHONUNBUFFERED: 1 # Déjà dans le Dockerfile, mais peut être redéfini ici
+      PYTHONUNBUFFERED: 1
+      # URL interne du service Kroki (rendu Mermaid -> image pour PDF/ODT)
+      KROKI_URL: http://kroki:8000
+
+  # Kroki : rend les diagrammes en image côté serveur (utilisé pour PDF/ODT).
+  kroki:
+    image: yuzutech/kroki
+    container_name: markdownview_kroki
+    restart: unless-stopped
+    depends_on:
+      - kroki-mermaid
+    environment:
+      KROKI_MERMAID_HOST: kroki-mermaid
+    expose:
+      - "8000"
+
+  # Companion requis par Kroki pour le type Mermaid (rendu via navigateur headless).
+  kroki-mermaid:
+    image: yuzutech/kroki-mermaid
+    container_name: markdownview_kroki_mermaid
+    restart: unless-stopped
+    expose:
+      - "8002"

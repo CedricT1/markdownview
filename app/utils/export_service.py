@@ -1,7 +1,11 @@
+import html
 import ipaddress
 import os
+import re
 import socket
 import subprocess
+import tempfile
+import urllib.request
 from io import BytesIO
 from urllib.parse import urlparse
 
@@ -12,11 +16,22 @@ from .markdown_processor import to_html as markdown_to_html
 # CSS du projet, inliné dans les exports pour un rendu cohérent et portable.
 _CSS_PATH = os.path.join(os.path.dirname(__file__), '..', 'static', 'css', 'style.css')
 
-# Mermaid n'est rendu que côté navigateur (JS) : utile pour l'export HTML,
-# inutile pour le PDF (WeasyPrint n'exécute pas de JavaScript).
+# Service Kroki (rendu serveur des diagrammes Mermaid -> image), pour PDF/ODT.
+_KROKI_URL = os.environ.get('KROKI_URL', 'http://kroki:8000').rstrip('/')
+_KROKI_TIMEOUT = 20
+
+# Mermaid n'est rendu côté navigateur (JS) que pour l'aperçu et l'export HTML.
 _MERMAID_SCRIPT = (
     '<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>'
     '<script>mermaid.initialize({startOnLoad: true, securityLevel: "strict"});</script>'
+)
+
+# <div class="mermaid">SOURCE_ECHAPPEE</div> produit par markdown_processor.
+_MERMAID_DIV = re.compile(r'<div class="mermaid">(.*?)</div>', re.DOTALL)
+# Bloc ```mermaid ... ``` dans le Markdown source (pour le pré-traitement ODT).
+_MERMAID_FENCE = re.compile(
+    r'^[ \t]*```[ \t]*mermaid[ \t]*\n(.*?)\n[ \t]*```[ \t]*$',
+    re.MULTILINE | re.DOTALL,
 )
 
 
@@ -35,8 +50,56 @@ def _load_css():
 _EXPORT_CSS = _load_css()
 
 
-def _standalone_html(html_fragment, title, include_mermaid):
-    mermaid = _MERMAID_SCRIPT if include_mermaid and 'class="mermaid"' in html_fragment else ''
+def _kroki_render(source, fmt):
+    """Rend une source Mermaid en image via Kroki. fmt = 'svg' ou 'png'. Renvoie des bytes."""
+    req = urllib.request.Request(
+        f"{_KROKI_URL}/mermaid/{fmt}",
+        data=source.encode('utf-8'),
+        headers={'Content-Type': 'text/plain'},
+        method='POST',
+    )
+    with urllib.request.urlopen(req, timeout=_KROKI_TIMEOUT) as resp:
+        return resp.read()
+
+
+def _render_mermaid_svg_in_html(html_fragment):
+    """Remplace les <div class="mermaid"> par le SVG rendu par Kroki (pour le PDF)."""
+    def repl(match):
+        source = html.unescape(match.group(1)).strip()
+        try:
+            svg = _kroki_render(source, 'svg').decode('utf-8')
+        except Exception:
+            # Kroki indisponible : on retombe sur le code brut du diagramme.
+            return f'<pre class="mermaid-fallback">{match.group(1)}</pre>'
+        start = svg.find('<svg')  # retire le prologue XML/doctype pour l'inline
+        if start > 0:
+            svg = svg[start:]
+        return f'<div class="mermaid">{svg}</div>'
+
+    return _MERMAID_DIV.sub(repl, html_fragment)
+
+
+def _replace_mermaid_with_png(markdown_text, tmp_dir):
+    """Remplace les blocs ```mermaid du Markdown par des images PNG (pour l'ODT/Pandoc)."""
+    counter = {'i': 0}
+
+    def repl(match):
+        source = match.group(1).strip()
+        try:
+            png = _kroki_render(source, 'png')
+        except Exception:
+            return match.group(0)  # Kroki KO : on laisse le bloc tel quel
+        path = os.path.join(tmp_dir, f"mermaid_{counter['i']}.png")
+        counter['i'] += 1
+        with open(path, 'wb') as f:
+            f.write(png)
+        return f"![Diagramme]({path})"
+
+    return _MERMAID_FENCE.sub(repl, markdown_text)
+
+
+def _standalone_html(html_fragment, title, include_mermaid_js):
+    mermaid = _MERMAID_SCRIPT if include_mermaid_js and 'class="mermaid"' in html_fragment else ''
     return f"""<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -80,15 +143,16 @@ def _safe_url_fetcher(url, *args, **kwargs):
 
 
 def export_html(markdown_text):
-    """Exporte le Markdown en document HTML autonome (CSS inliné + Mermaid)."""
+    """Exporte le Markdown en document HTML autonome (CSS inliné + Mermaid via JS)."""
     fragment = markdown_to_html(markdown_text)
-    return _standalone_html(fragment, "Export HTML", include_mermaid=True)
+    return _standalone_html(fragment, "Export HTML", include_mermaid_js=True)
 
 
 def export_pdf(markdown_text):
-    """Convertit le Markdown en flux binaire PDF (stylé, sans accès réseau interne)."""
+    """Convertit le Markdown en flux binaire PDF (Mermaid pré-rendu en SVG via Kroki)."""
     fragment = markdown_to_html(markdown_text)
-    full_html = _standalone_html(fragment, "Export PDF", include_mermaid=False)
+    fragment = _render_mermaid_svg_in_html(fragment)
+    full_html = _standalone_html(fragment, "Export PDF", include_mermaid_js=False)
     pdf_file = BytesIO()
     WeasyHTML(string=full_html, url_fetcher=_safe_url_fetcher).write_pdf(pdf_file)
     pdf_file.seek(0)
@@ -97,22 +161,24 @@ def export_pdf(markdown_text):
 
 def export_odt(markdown_text):
     """
-    Convertit le Markdown en flux binaire ODT via Pandoc.
+    Convertit le Markdown en flux binaire ODT via Pandoc (Mermaid pré-rendu en PNG).
 
     Lève ExportError en cas d'échec (Pandoc absent ou erreur de conversion),
     afin que la route renvoie un vrai code HTTP au lieu d'un .odt corrompu.
     """
-    try:
-        process = subprocess.run(
-            ['pandoc', '--from=markdown', '--to=odt', '--output=-'],
-            input=markdown_text.encode('utf-8'),
-            text=False,
-            capture_output=True,
-            check=True,
-        )
-        return BytesIO(process.stdout)
-    except FileNotFoundError as exc:
-        raise ExportError("Pandoc n'est pas installé sur le serveur.") from exc
-    except subprocess.CalledProcessError as exc:
-        details = exc.stderr.decode('utf-8', 'replace') if exc.stderr else ''
-        raise ExportError(f"Échec de la conversion Pandoc : {details}") from exc
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        processed = _replace_mermaid_with_png(markdown_text, tmp_dir)
+        try:
+            process = subprocess.run(
+                ['pandoc', '--from=markdown', '--to=odt', '--output=-'],
+                input=processed.encode('utf-8'),
+                text=False,
+                capture_output=True,
+                check=True,
+            )
+            return BytesIO(process.stdout)
+        except FileNotFoundError as exc:
+            raise ExportError("Pandoc n'est pas installé sur le serveur.") from exc
+        except subprocess.CalledProcessError as exc:
+            details = exc.stderr.decode('utf-8', 'replace') if exc.stderr else ''
+            raise ExportError(f"Échec de la conversion Pandoc : {details}") from exc
