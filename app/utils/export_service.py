@@ -1,3 +1,4 @@
+import base64
 import html
 import ipaddress
 import os
@@ -18,7 +19,7 @@ _CSS_PATH = os.path.join(os.path.dirname(__file__), '..', 'static', 'css', 'styl
 
 # Service Kroki (rendu serveur des diagrammes Mermaid -> image), pour PDF/ODT.
 _KROKI_URL = os.environ.get('KROKI_URL', 'http://kroki:8000').rstrip('/')
-_KROKI_TIMEOUT = 20
+_KROKI_TIMEOUT = 30  # Kroki/Chromium peut être lent au premier rendu (démarrage à froid)
 
 # Mermaid n'est rendu côté navigateur (JS) que pour l'aperçu et l'export HTML.
 _MERMAID_SCRIPT = (
@@ -62,19 +63,23 @@ def _kroki_render(source, fmt):
         return resp.read()
 
 
-def _render_mermaid_svg_in_html(html_fragment):
-    """Remplace les <div class="mermaid"> par le SVG rendu par Kroki (pour le PDF)."""
+def _render_mermaid_png_in_html(html_fragment):
+    """
+    Remplace les <div class="mermaid"> par le PNG rendu par Kroki, en data URI (pour le PDF).
+
+    On utilise le PNG (rastérisé par Chromium côté Kroki) plutôt que le SVG : les
+    labels Mermaid sont des <foreignObject> HTML que WeasyPrint ne sait pas rendre
+    (rectangles sans texte). Le PNG contient déjà le texte, le rendu est fiable.
+    """
     def repl(match):
         source = html.unescape(match.group(1)).strip()
         try:
-            svg = _kroki_render(source, 'svg').decode('utf-8')
+            png = _kroki_render(source, 'png')
         except Exception:
             # Kroki indisponible : on retombe sur le code brut du diagramme.
             return f'<pre class="mermaid-fallback">{match.group(1)}</pre>'
-        start = svg.find('<svg')  # retire le prologue XML/doctype pour l'inline
-        if start > 0:
-            svg = svg[start:]
-        return f'<div class="mermaid">{svg}</div>'
+        b64 = base64.b64encode(png).decode('ascii')
+        return f'<div class="mermaid"><img alt="Diagramme" src="data:image/png;base64,{b64}"></div>'
 
     return _MERMAID_DIV.sub(repl, html_fragment)
 
@@ -151,7 +156,7 @@ def export_html(markdown_text):
 def export_pdf(markdown_text):
     """Convertit le Markdown en flux binaire PDF (Mermaid pré-rendu en SVG via Kroki)."""
     fragment = markdown_to_html(markdown_text)
-    fragment = _render_mermaid_svg_in_html(fragment)
+    fragment = _render_mermaid_png_in_html(fragment)
     full_html = _standalone_html(fragment, "Export PDF", include_mermaid_js=False)
     pdf_file = BytesIO()
     WeasyHTML(string=full_html, url_fetcher=_safe_url_fetcher).write_pdf(pdf_file)
